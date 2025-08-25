@@ -1,0 +1,94 @@
+version: "3.8"
+
+services:
+  # --- Core Infrastructure ---
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.2
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.2
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CREATE_TOPICS: "raw-events:1:1"
+
+  cassandra:
+    image: cassandra:4.0
+    container_name: cassandra
+    ports:
+      - "9042:9042"
+    environment:
+      CASSANDRA_DC: datacenter1
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+
+  # --- Application Services ---
+  anomaly-service:
+    build: ./anomaly-service
+    container_name: anomaly-service
+    ports: ["8000:8000"]
+    environment:
+      - OTEL_SERVICE_NAME=anomaly-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+
+  producer:
+    build: ./producer
+    container_name: producer
+    depends_on: [kafka]
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - TOPIC=raw-events
+      - RATE_PER_SEC=10 # Start with a lower rate for testing
+      - OTEL_SERVICE_NAME=event-producer
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+
+  flink-job:
+    build: ./flink-job
+    container_name: flink-job
+    depends_on: [kafka, cassandra, anomaly-service]
+
+  # --- Observability Stack ---
+  otel-collector:
+    image: otel/opentelemetry-collector:0.104.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686" # Jaeger UI
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on: [prometheus]
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    ports: ["3000:3000"]
+
+volumes:
+  cassandra_data:
