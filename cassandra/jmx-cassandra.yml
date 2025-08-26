@@ -1,0 +1,5 @@
+rules:
+  - pattern: "org.apache.cassandra.metrics<type=(.+), name=(.+)><>Value"
+    name: cassandra_$1_$2
+    type: GAUGE
+    help: "Cassandra metric $1 $2"

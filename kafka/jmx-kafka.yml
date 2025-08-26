@@ -1,0 +1,9 @@
+rules:
+  - pattern: "kafka.server<type=(.+), name=(.+)PerSec\\w*><>Count"
+    name: kafka_$1_$2_total
+    type: COUNTER
+    help: "Kafka $1 $2 per second"
+  - pattern: "kafka.server<type=(.+), name=(.+)><>Value"
+    name: kafka_$1_$2
+    type: GAUGE
+    help: "Kafka $1 $2 value"

@@ -13,28 +13,76 @@ services:
   kafka:
     image: confluentinc/cp-kafka:7.3.2
     container_name: kafka
-    depends_on:
-      - zookeeper
+    depends_on: [zookeeper]
     ports:
       - "9092:9092"
       - "29092:29092"
+      - "7071:7071"
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      NUM_PARTITIONS: 3
+      DEFAULT_REPLICATION_FACTOR: 1
+
+      # 👇 Bind listeners INSIDE the container
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092"
+
+      # 👇 What addresses clients should use (inside docker vs. on your host)
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092"
+
+      # 👇 Map listener names to protocols and choose inter-broker listener
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_CREATE_TOPICS: "raw-events:1:1"
+
+      # JMX exporter
+      KAFKA_OPTS: -javaagent:/usr/share/jmx_exporter/jmx_prometheus_javaagent.jar=7071:/etc/jmx-kafka.yml
+    volumes:
+      - ./jmx-exporter/jmx_prometheus_javaagent-0.20.0.jar:/usr/share/jmx_exporter/jmx_prometheus_javaagent.jar:ro
+      - ./kafka/jmx-kafka.yml:/etc/jmx-kafka.yml:ro
+
+    # Healthcheck: give the broker more time to come up
+    # healthcheck:
+    #   test: ["CMD-SHELL", "cub kafka-ready -b localhost:9092 1 20 -z zookeeper:2181 >/dev/null 2>&1"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 30
+    #   start_period: 60s
+
+  # kafka-init:
+  #   image: confluentinc/cp-kafka:7.3.2
+  #   depends_on:
+  #     kafka:
+  #       condition: service_healthy
+  #   restart: "no"
+  #   entrypoint: ["/bin/bash","-lc"]
+  #   command: >
+  #     "kafka-topics --bootstrap-server kafka:9092
+  #     --create --topic raw-events --partitions 1 --replication-factor 1 || true"
+
+
 
   cassandra:
     image: cassandra:4.0
     container_name: cassandra
     ports:
       - "9042:9042"
+      - "7072:7072"   # JMX exporter port
     environment:
       CASSANDRA_DC: datacenter1
+      JVM_OPTS: "-javaagent:/usr/share/jmx_exporter/jmx_prometheus_javaagent.jar=7072:/etc/jmx-cassandra.yml"
     volumes:
       - cassandra_data:/var/lib/cassandra
+      - ./jmx-exporter/jmx_prometheus_javaagent-0.20.0.jar:/usr/share/jmx_exporter/jmx_prometheus_javaagent.jar
+      - ./cassandra/jmx-cassandra.yml:/etc/jmx-cassandra.yml
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "SELECT release_version FROM system.local"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    
 
   # --- Application Services ---
   anomaly-service:
@@ -56,10 +104,53 @@ services:
       - OTEL_SERVICE_NAME=event-producer
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 
+    # --- Flink Cluster ---
+  jobmanager:
+    image: flink:1.17.1-scala_2.12
+    container_name: jobmanager
+    command: jobmanager
+    ports:
+      - "8081:8081"
+      - "9250:9250"
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        jobmanager.memory.process.size: 1600m
+        taskmanager.numberOfTaskSlots: 2
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9250
+        blob.server.port: 6124
+        query.server.port: 6125
+
+  taskmanager:
+    image: flink:1.17.1-scala_2.12
+    container_name: taskmanager
+    command: taskmanager
+    depends_on: [jobmanager]
+    ports:
+      - "9251:9250"   # expose Prometheus port
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.memory.process.size: 2048m
+        taskmanager.numberOfTaskSlots: 2
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9250
+
   flink-job:
     build: ./flink-job
     container_name: flink-job
-    depends_on: [kafka, cassandra, anomaly-service]
+    depends_on:
+      cassandra:
+        condition: service_healthy
+      kafka:
+      anomaly-service:
+      jobmanager:
+      taskmanager:
+    command: ["/app/entrypoint.sh"]
+
 
   # --- Observability Stack ---
   otel-collector:
@@ -87,8 +178,15 @@ services:
     image: grafana/grafana:latest
     depends_on: [prometheus]
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
     ports: ["3000:3000"]
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin   # change me
+      # optional: allow anonymous browsing of dashboards
+      - GF_AUTH_ANONYMOUS_ENABLED=true
 
 volumes:
   cassandra_data:
+  grafana_data:
