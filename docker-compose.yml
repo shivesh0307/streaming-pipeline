@@ -118,6 +118,11 @@ services:
       - RATE_PER_SEC=10 # Start with a lower rate for testing
       - OTEL_SERVICE_NAME=event-producer
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_TRACES_SAMPLER=always_on
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=local
+      - OTEL_LOG_LEVEL=debug
 
     # --- Flink Cluster ---
   jobmanager:
@@ -128,8 +133,7 @@ services:
       - "8081:8081"
       - "9250:9250"
     environment:
-      - |
-        FLINK_PROPERTIES=
+      FLINK_PROPERTIES: |
         jobmanager.rpc.address: jobmanager
         jobmanager.memory.process.size: 1600m
         taskmanager.numberOfTaskSlots: 2
@@ -137,6 +141,15 @@ services:
         metrics.reporter.prom.port: 9250
         blob.server.port: 6124
         query.server.port: 6125
+      JAVA_TOOL_OPTIONS: "-javaagent:/otel/otel-javaagent.jar"
+      OTEL_SERVICE_NAME: "flink-jobmanager"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_TRACES_EXPORTER: "otlp"
+      OTEL_METRICS_EXPORTER: "none"
+      OTEL_LOGS_EXPORTER: "none"
+    volumes:
+      - ./otel/opentelemetry-javaagent.jar:/otel/otel-javaagent.jar:ro
+
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/overview"]
       interval: 5s
@@ -152,13 +165,20 @@ services:
     ports:
       - "9251:9250"   # expose Prometheus port
     environment:
-      - |
-        FLINK_PROPERTIES=
+      FLINK_PROPERTIES: |
         jobmanager.rpc.address: jobmanager
         taskmanager.memory.process.size: 2048m
         taskmanager.numberOfTaskSlots: 2
         metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
         metrics.reporter.prom.port: 9250
+      JAVA_TOOL_OPTIONS: "-javaagent:/otel/otel-javaagent.jar"
+      OTEL_SERVICE_NAME: "flink-taskmanager"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_TRACES_EXPORTER: "otlp"
+      OTEL_METRICS_EXPORTER: "none"
+      OTEL_LOGS_EXPORTER: "none"
+    volumes:
+      - ./otel/opentelemetry-javaagent.jar:/otel/otel-javaagent.jar:ro
 
   flink-job:
     build: ./flink-job
@@ -181,7 +201,15 @@ services:
       - ANOMALY_MAX_RETRIES=2
       - ANOMALY_BASE_BACKOFF_MS=200
       - ANOMALY_CALL_TIMEOUT_MS=2000
+      - JAVA_TOOL_OPTIONS=-javaagent:/otel/otel-javaagent.jar
+      - OTEL_SERVICE_NAME=flink-job
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
     command: ["/app/entrypoint.sh"]
+    volumes:
+      - ./otel/opentelemetry-javaagent.jar:/otel/otel-javaagent.jar:ro
 
 
   # --- Observability Stack ---
@@ -191,7 +219,9 @@ services:
     volumes:
       - ./otel/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
     ports:
-      - "4317:4317" # OTLP gRPC
+    - "4317:4317"
+    - "4318:4318"
+    - "13133:13133" 
 
   jaeger:
     image: jaegertracing/all-in-one:1.57

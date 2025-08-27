@@ -3,6 +3,8 @@ import json
 import time
 import random
 from kafka import KafkaProducer, errors
+from opentelemetry import trace
+tracer = trace.get_tracer("producer-app")
 
 KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092")
 TOPIC = os.environ.get("TOPIC", "raw-events")
@@ -28,11 +30,12 @@ sensor_ids = ["sensor-1", "sensor-2", "sensor-3"]
 print(f"Producing to {TOPIC} at {KAFKA_BOOTSTRAP} ({RATE_PER_SEC} msg/sec)")
 
 while True:
-    event = {
-        "sensorId": random.choice(sensor_ids),
-        "timestamp": int(time.time() * 1000),
-        "value": round(random.uniform(0, 120), 2)
-    }
-    producer.send(TOPIC, event)
-    print("Produced:", event)
+    with tracer.start_as_current_span("produce-event"):
+        event = {
+            "sensorId": random.choice(sensor_ids),
+            "timestamp": int(time.time() * 1000),
+            "value": round(random.uniform(0, 120), 2)
+        }
+        producer.send(TOPIC, event)
+        print("Produced:", event)
     time.sleep(1.0 / RATE_PER_SEC)

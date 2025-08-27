@@ -58,5 +58,9 @@ def score():
         logging.error(f"Error processing value '{value}': {e}")
         return jsonify({"error": "Invalid 'value' format, must be a number"}), 400
 
+@app.route('/healthz', methods=['GET'])
+def healthz():
+    return "OK", 200
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000)
