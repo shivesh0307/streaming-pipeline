@@ -70,80 +70,81 @@ docker compose down -v
 
 * Logs should show:
 
-  ```
-  ✅ Connected to Kafka!
-  Produced: {"sensorId": "sensor-1", "timestamp": 1690000000000, "value": 42.1}
-  ```
+    ```
+    ✅ Connected to Kafka!
+    Produced: {"sensorId": "sensor-1", "timestamp": 1690000000000, "value": 42.1}
+    ```
+
 * To test manually:
 
-  ```bash
-  ```
+    ```
+    docker compose logs -f producer
+    ```
 
-docker compose logs -f producer
-
-````
 
 ### 2. **Kafka**
 - Verify topics:
-```bash
-docker compose exec kafka kafka-topics --bootstrap-server kafka:9092 --list
-````
+
+    ```
+    docker compose exec kafka kafka-topics --bootstrap-server kafka:9092 --list
+    ```
 
 * Consume messages directly:
 
-  ```bash
-  ```
+    ```
+    docker compose exec kafka kafka-console-consumer --bootstrap-server kafka:9092 --topic raw-events --from-beginning
+    ```
 
-docker compose exec kafka kafka-console-consumer --bootstrap-server kafka:9092 --topic raw-events --from-beginning
-
-````
+---
 
 ### 3. **Anomaly Detection Service**
 - Health check:
-```bash
-curl http://localhost:8000/healthz
-````
+
+    ```
+    curl http://localhost:8000/healthz
+    ```
 
 * Score API test:
 
-  ```bash
-  ```
+    ```
+    curl -X POST http://localhost:8000/score -H "Content-Type: application/json" -d '{"sensorId": "sensor-1", "timestamp": 1690000000000, "value": 50}'
+    ```
 
-curl -X POST [http://localhost:8000/score](http://localhost:8000/score) -H "Content-Type: application/json" -d '{"sensorId": "sensor-1", "timestamp": 1690000000000, "value": 50}'
-
-````
+---
 
 ### 4. **Cassandra**
 - Connect:
-```bash
-docker compose exec cassandra cqlsh
-````
+
+    ```
+    docker compose exec cassandra cqlsh
+    ```
 
 * Query data:
 
-  ```sql
-  ```
+    ```sql
+    USE flink_keyspace;
+    SELECT * FROM events LIMIT 10;
+    ```
 
-USE flink\_keyspace;
-SELECT \* FROM events LIMIT 10;
-
-````
+---
 
 ### 5. **Flink**
 - UI: [http://localhost:8081](http://localhost:8081)
 - Logs:
-```bash
-docker compose logs -f flink-job
-````
+
+    ```
+    docker compose logs -f flink-job
+    ```
+
+---
 
 ### 6. **Prometheus**
+- UI: [http://localhost:9090](http://localhost:9090)  
+- Example query:
 
-* UI: [http://localhost:9090](http://localhost:9090)
-* Example query:
-
-  ```
-  flink_taskmanager_job_task_operator_numRecordsIn
-  ```
+    ```
+    flink_taskmanager_job_task_operator_numRecordsIn
+    ```
 
 ### 7. **Grafana**
 
