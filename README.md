@@ -188,6 +188,11 @@ docker compose down -v
 * Check `event-producer` or `anomaly-service` traces.
 
 ---
+### 9. **Complete Architecture**
+
+<img width="3459" height="1379" alt="image" src="https://github.com/user-attachments/assets/a52828cf-6a51-4e89-8364-4c8eb87c54ce" />
+
+---
 
 ## ⚡ Reliability Features
 
