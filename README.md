@@ -2,6 +2,9 @@
 
 This project implements a **real-time data streaming pipeline** using Kafka, Flink, Cassandra, Prometheus, Grafana, and Jaeger. It simulates IoT sensor events, scores them with a Python-based anomaly detection service, and persists results in Cassandra with full observability.
 
+<img width="944" height="3840" alt="Untitled diagram _ Mermaid Chart-2025-08-28-044824" src="https://github.com/user-attachments/assets/e4c3205b-09ae-4ec0-b141-9a196d574d00" />
+
+
 ---
 
 ## 🚀 Architecture
